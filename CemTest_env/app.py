@@ -1,11 +1,13 @@
 import streamlit as st
-import sqlite3
 import pandas as pd
+import sqlite3
+from dbVisualize import afficher_tables_sqlite
+from exploreData import afficher_resume_statistiques
+from imputeData import corriger_valeurs_manquantes
 
 st.set_page_config(page_title="Essai Béton", layout="wide")
 
-# Menu simple dans sidebar
-page = st.sidebar.selectbox("Navigation", ["Accueil", "Visualisation"])
+page = st.sidebar.selectbox("Navigation", ["Accueil", "Visualisation", "Exploration", "Correction"])
 
 if page == "Accueil":
     st.title("🧱 Bienvenue sur l'application Essai Béton")
@@ -20,27 +22,22 @@ if page == "Accueil":
     """)
 
 elif page == "Visualisation":
-    st.title("📊 Visualisation des données SQLite")
+    afficher_tables_sqlite()
 
-    # Connexion à la base de données
+elif page == "Exploration":
+    st.title("Exploration simple - Histogramme")
+
     db_path = "dataBeton.db"
     conn = sqlite3.connect(db_path)
-    cursor = conn.cursor()
-
-    # Récupérer toutes les tables
-    cursor.execute("SELECT name FROM sqlite_master WHERE type='table';")
-    tables = [row[0] for row in cursor.fetchall()]
-
-    if not tables:
-        st.warning("❌ Aucune table trouvée dans la base de données.")
-    else:
-        table_name = st.selectbox("Sélectionner une table à afficher :", tables)
-        df = pd.read_sql_query(f"SELECT * FROM {table_name}", conn)
-
-        st.markdown(f"### 📁 Table : `{table_name}` – {len(df)} lignes")
-        st.dataframe(df, use_container_width=True)
-
-        csv = df.to_csv(index=False).encode("utf-8")
-        st.download_button("📥 Télécharger en CSV", csv, f"{table_name}.csv", "text/csv", key="download-csv")
-
+    df = pd.read_sql_query("SELECT * FROM NSB_Liste_273983CC", conn)
     conn.close()
+
+    afficher_resume_statistiques(df)
+
+
+elif page == "Correction":
+    st.title("Correction des valeurs manquantes")
+    db_path = "dataBeton.db"
+    from imputeData import corriger_valeurs_manquantes
+    corriger_valeurs_manquantes(db_path, "NSB_Liste_273983CC")
+
