@@ -1,43 +1,33 @@
+# app.py
+
+#Chargement des données depuis SQLite
+
+# Nettoyage automatique des valeurs (virgules → points)
+
+# Résumé statistique affiché
+
+# Interface de correction interactive pour les valeurs manquantes (par numeroNSB)
+
+# Écriture directe dans la base avec rechargement instantané
+
+
 import streamlit as st
-import pandas as pd
-import sqlite3
-from dbVisualize import afficher_tables_sqlite
-from exploreData import afficher_resume_statistiques
+from exploreData import charger_donnees_sqlite, nettoyer_dataframe, afficher_resume
 from imputeData import corriger_valeurs_manquantes
 
-st.set_page_config(page_title="Essai Béton", layout="wide")
+st.set_page_config(page_title="Analyse Béton", layout="wide")
 
-page = st.sidebar.selectbox("Navigation", ["Accueil", "Visualisation", "Exploration", "Correction"])
+st.title("🧱 Application d’analyse des résistances du béton")
 
-if page == "Accueil":
-    st.title("🧱 Bienvenue sur l'application Essai Béton")
-    st.markdown("""
-    ## Objectif 🎯
-    Cette application permet :
-    - de récupérer les données d'essais béton
-    - de les stocker dans une base SQLite
-    - de visualiser et télécharger les données
+# 1. Chargement
+table = "NSB_Liste_273983CC"
+df = charger_donnees_sqlite(table_name=table)
 
-    ➡️ Utilisez le menu à gauche pour accéder aux différentes fonctionnalités.
-    """)
+# 2. Nettoyage
+df_nettoye = nettoyer_dataframe(df)
 
-elif page == "Visualisation":
-    afficher_tables_sqlite()
+# 3. Exploration
+afficher_resume(df_nettoye)
 
-elif page == "Exploration":
-    st.title("Exploration simple - Histogramme")
-
-    db_path = "dataBeton.db"
-    conn = sqlite3.connect(db_path)
-    df = pd.read_sql_query("SELECT * FROM NSB_Liste_273983CC", conn)
-    conn.close()
-
-    afficher_resume_statistiques(df)
-
-
-elif page == "Correction":
-    st.title("Correction des valeurs manquantes")
-    db_path = "dataBeton.db"
-    from imputeData import corriger_valeurs_manquantes
-    corriger_valeurs_manquantes(db_path, "NSB_Liste_273983CC")
-
+# 4. Correction manuelle
+corriger_valeurs_manquantes(df_nettoye, table_name=table)
