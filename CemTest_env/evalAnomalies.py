@@ -46,9 +46,19 @@ def detecter_anomalies(df):
     df_long["anomalie"] = model.predict(df_features)
     df_long["anomalie"] = df_long["anomalie"].map({1: "Normal", -1: "Anomalie"})
 
-    st.subheader("🚨 Résultats de la détection")
-    st.dataframe(df_long, use_container_width=True)
+    # ✅ Styliser les anomalies en rouge
+    def surligner_anomalies(row):
+        if row["anomalie"] == "Anomalie":
+            return ["background-color: red; color: white"] * len(row)
+        else:
+            return [""] * len(row)
 
+    df_styled = df_long.style.apply(surligner_anomalies, axis=1)
+
+    st.subheader("🚨 Résultats de la détection")
+    st.dataframe(df_styled, use_container_width=True)
+
+    # ✅ Graphique interactif
     fig = px.scatter(
         df_long, x="age", y="resistance",
         color="anomalie", symbol="formule",
@@ -57,5 +67,6 @@ def detecter_anomalies(df):
     )
     st.plotly_chart(fig, use_container_width=True)
 
+    # ✅ Résumé
     anomalies = df_long[df_long["anomalie"] == "Anomalie"]
     st.error(f"{len(anomalies)} anomalies détectées sur {len(df_long)} mesures.")
