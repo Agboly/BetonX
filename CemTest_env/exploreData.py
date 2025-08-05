@@ -1,4 +1,3 @@
-# Chargement + Exploration exploreData.py
 import streamlit as st
 import pandas as pd
 import sqlite3
@@ -32,3 +31,13 @@ def afficher_resume(df):
         st.dataframe(lignes_incompletes)
     else:
         st.success("✅ Aucune valeur manquante détectée.")
+
+    # ➕ Moyennes des résistances par âge et par formule
+    st.subheader("📈 Moyennes des résistances par âge et par formule de béton")
+
+    colonnes_resistance = ["jour_1", "jour_3", "jour_7", "jour_28", "jour_56"]
+    if "formule" in df.columns:
+        moyennes = df.groupby("formule")[colonnes_resistance].mean().round(2)
+        st.dataframe(moyennes)
+    else:
+        st.warning("⚠️ La colonne 'formule' est absente du dataset.")

@@ -37,7 +37,26 @@ def corriger_valeurs_manquantes(df, table_name, db_path="dataBeton.db"):
                             f"UPDATE {table_name} SET {col} = ? WHERE numeroNSB = ?", (val, nsb_selectionne)
                         )
                     conn.commit()
+
                 st.success("✅ Correction enregistrée.")
-                st.rerun()
+
+                # 🔁 Recharge les données corrigées
+                with sqlite3.connect(db_path) as conn:
+                    df_corrige = pd.read_sql_query(f"SELECT * FROM {table_name}", conn)
+
+                df_corrige = df_corrige[df_corrige["numeroNSB"] == nsb_selectionne]
+
+                # 🎨 Appliquer mise en couleur
+                def surbrillance_modifs(valeur, col):
+                    return "background-color: lightgreen" if col in corrections else ""
+
+                st.write("🧾 **Ligne mise à jour :**")
+
+                styled_df = df_corrige.style.apply(
+                    lambda row: [surbrillance_modifs(row[col], col) for col in df_corrige.columns],
+                    axis=1
+                )
+                st.dataframe(styled_df)
+
             except Exception as e:
                 st.error(f"Erreur : {e}")
