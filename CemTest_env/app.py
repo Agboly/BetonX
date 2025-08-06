@@ -6,6 +6,8 @@ from imputeData import corriger_valeurs_manquantes
 from evalAnomalies import detecter_anomalies  # 🆕 Détection automatique des anomalies
 import plotly.express as px
 
+
+
 st.set_page_config(page_title="Analyse Béton", layout="wide")
 st.title("🧱 BetonX : Application intelligente d’analyse des résistances du béton")
 

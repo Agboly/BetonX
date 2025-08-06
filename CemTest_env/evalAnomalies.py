@@ -53,19 +53,55 @@ def detecter_anomalies(df):
         else:
             return [""] * len(row)
 
-    df_styled = df_long.style.apply(surligner_anomalies, axis=1)
+    # Créer une colonne d'explication des anomalies
+    def expliquer_anomalie(row):
+        if row["anomalie"] == "Anomalie":
+            return f"Slump: {row['slump']}, Temp: {row['temperature']}°C, Formule: {row['formule']}"
+        else:
+            return ""
 
-    st.subheader("🚨 Résultats de la détection")
-    st.dataframe(df_styled, use_container_width=True)
+    df_long["explication_anomalie"] = df_long.apply(expliquer_anomalie, axis=1)
 
-    # ✅ Graphique interactif
-    fig = px.scatter(
-        df_long, x="age", y="resistance",
-        color="anomalie", symbol="formule",
-        title="Visualisation des anomalies détectées",
-        hover_data=["numeroNSB", "formule", "slump", "temperature"]
+
+    # Afficher un tableau simplifié pour les anomalies uniquement
+    st.subheader("🚨 Détail des anomalies détectées")
+    df_anomalies = df_long[df_long["anomalie"] == "Anomalie"]
+    df_anomalies_affiche = df_anomalies[[
+        "numeroNSB", "formule", "age", "resistance", "slump", "temperature", "explication_anomalie"
+    ]]
+    st.dataframe(df_anomalies_affiche, use_container_width=True)
+
+
+    # 📊 Graphique de dispersion
+    st.subheader("📊 Histogramme des anomalies par âge")
+
+    # S'assurer que 'age' est bien catégorique
+    df_long["age"] = df_long["age"].astype(str)
+
+    # Optionnel : trier les âges dans l’ordre croissant
+    ages_ordonnes = sorted(df_long["age"].unique(), key=lambda x: int(x))
+
+    fig_hist = px.histogram(
+        df_long,
+        x="age",
+        color="anomalie",
+        color_discrete_map={"Anomalie": "red", "Normal": "green"},
+        barmode="overlay",
+        category_orders={"age": ages_ordonnes},  # 🔍 forcer l’ordre des catégories
+        title="Répartition des anomalies selon l'âge"
     )
-    st.plotly_chart(fig, use_container_width=True)
+
+
+    fig_hist.update_layout(
+        xaxis_title="Âge (jours)",
+        yaxis_title="Nombre de mesures",
+        legend_title_text="Anomalie"
+    )
+
+    st.plotly_chart(fig_hist, use_container_width=True)
+
+
+
 
     # ✅ Résumé
     anomalies = df_long[df_long["anomalie"] == "Anomalie"]
