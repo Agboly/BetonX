@@ -2,107 +2,81 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 from sklearn.ensemble import IsolationForest
-from sklearn.preprocessing import LabelEncoder
+from correctionAnomalies import corriger_valeurs_anormales
 
-def detecter_anomalies(df):
-    st.write("🔍 Détection automatique des anomalies")
+def detecter_anomalies_app(df):
+    st.title("🔎 Détection d'anomalies")
+    st.write("Cette section permet de détecter automatiquement les valeurs anormales dans toutes les colonnes numériques (résistances, slump, température).")
 
-    colonnes_resistance = ["jour_1", "jour_3", "jour_7", "jour_28", "jour_56"]
-    st.write("Colonnes du dataframe :", df.columns.tolist())
+    colonnes_analyse = ["jour_1", "jour_3", "jour_7", "jour_28", "jour_56", "slump", "temperature"]
+    colonnes_presentes = [col for col in colonnes_analyse if col in df.columns]
 
-    # Format long
-    try:
-        df_long = df.melt(
-            id_vars=["numeroNSB", "formule", "slump", "temperature", "volume"],
-            value_vars=colonnes_resistance,
-            var_name="age_jour",
-            value_name="resistance"
-        )
-    except Exception as e:
-        st.error(f"Erreur lors du melt : {e}")
+    identifiant_colonne = "numeroNSB" if "numeroNSB" in df.columns else "NumeroBL"
+
+    if not colonnes_presentes:
+        st.warning("Aucune des colonnes cibles n’est présente dans les données.")
         return
 
-    df_long = df_long.dropna(subset=["resistance", "formule", "slump", "temperature"])
+    anomalies_globales = []
 
-    st.write("Lignes après dropna :", len(df_long))
-    if df_long.empty:
-        st.warning("Pas assez de données après nettoyage.")
-        return
+    for col in colonnes_presentes:
+        data_col = df[[identifiant_colonne] + colonnes_presentes].dropna(subset=[col])
 
-    df_long["age"] = df_long["age_jour"].str.extract("jour_(\d+)").astype(int)
-    df_long["formule_enc"] = LabelEncoder().fit_transform(df_long["formule"])
+        if data_col.empty or len(data_col) < 10:
+            st.info(f"Pas assez de données pour analyser la colonne '{col}'.")
+            continue
 
-    features = ["resistance", "age", "formule_enc", "slump", "temperature"]
-    df_features = df_long[features]
-    st.write("Données utilisées pour le modèle :", df_features.head())
-
-    try:
         model = IsolationForest(n_estimators=100, contamination=0.05, random_state=42)
-        model.fit(df_features)
-    except Exception as e:
-        st.error(f"Erreur dans l'entraînement du modèle : {e}")
-        return
+        model.fit(data_col[[col]])
 
-    df_long["anomalie"] = model.predict(df_features)
-    df_long["anomalie"] = df_long["anomalie"].map({1: "Normal", -1: "Anomalie"})
+        pred = model.predict(data_col[[col]])
+        data_col["anomalie"] = pred
+        data_col["anomalie"] = data_col["anomalie"].map({1: "Normal", -1: "Anomalie"})
 
-    # ✅ Styliser les anomalies en rouge
-    def surligner_anomalies(row):
-        if row["anomalie"] == "Anomalie":
-            return ["background-color: red; color: white"] * len(row)
-        else:
-            return [""] * len(row)
+        anomalies = data_col[data_col["anomalie"] == "Anomalie"].copy()
+        anomalies["colonne_concernee"] = col
 
-    # Créer une colonne d'explication des anomalies
-    def expliquer_anomalie(row):
-        if row["anomalie"] == "Anomalie":
-            return f"Slump: {row['slump']}, Temp: {row['temperature']}°C, Formule: {row['formule']}"
-        else:
-            return ""
+        anomalies_globales.append(anomalies)
 
-    df_long["explication_anomalie"] = df_long.apply(expliquer_anomalie, axis=1)
+    # Résumé global
+    st.subheader("📊 Résumé global des anomalies détectées")
 
+    if anomalies_globales:
+        df_anomalies = pd.concat(anomalies_globales, ignore_index=True)
 
-    # Afficher un tableau simplifié pour les anomalies uniquement
-    st.subheader("🚨 Détail des anomalies détectées")
-    df_anomalies = df_long[df_long["anomalie"] == "Anomalie"]
-    df_anomalies_affiche = df_anomalies[[
-        "numeroNSB", "formule", "age", "resistance", "slump", "temperature", "explication_anomalie"
-    ]]
-    st.dataframe(df_anomalies_affiche, use_container_width=True)
+        colonnes_finales = [identifiant_colonne] + colonnes_presentes + ["colonne_concernee", "anomalie"]
+        df_anomalies = df_anomalies[colonnes_finales]
 
+        st.error(f"{len(df_anomalies)} anomalies détectées au total.")
+        st.dataframe(df_anomalies, use_container_width=True)
 
-    # 📊 Graphique de dispersion
-    st.subheader("📊 Histogramme des anomalies par âge")
+        # Graphique global des anomalies par colonne
+        st.subheader("📊 Nombre d’anomalies par champ")
+        anomalies_par_col = df_anomalies[df_anomalies["anomalie"] == "Anomalie"]["colonne_concernee"].value_counts().reset_index()
+        anomalies_par_col.columns = ["Champ", "Nombre d’anomalies"]
 
-    # S'assurer que 'age' est bien catégorique
-    df_long["age"] = df_long["age"].astype(str)
+        fig = px.bar(
+            anomalies_par_col,
+            x="Champ",
+            y="Nombre d’anomalies",
+            color="Champ",
+            title="Nombre d’anomalies détectées par champ",
+            text="Nombre d’anomalies"
+        )
+        fig.update_traces(textposition='outside')
+        fig.update_layout(showlegend=False, yaxis_title="Nombre d’anomalies", xaxis_title="Champ")
+        st.plotly_chart(fig, use_container_width=True)
 
-    # Optionnel : trier les âges dans l’ordre croissant
-    ages_ordonnes = sorted(df_long["age"].unique(), key=lambda x: int(x))
+        # Téléchargement CSV
+        csv = df_anomalies.to_csv(index=False).encode("utf-8")
+        st.download_button(
+            label="📥 Télécharger les anomalies en CSV",
+            data=csv,
+            file_name="anomalies_detectees.csv",
+            mime="text/csv"
+        )
+    else:
+        st.success("Aucune anomalie détectée dans les colonnes analysées.")
 
-    fig_hist = px.histogram(
-        df_long,
-        x="age",
-        color="anomalie",
-        color_discrete_map={"Anomalie": "red", "Normal": "green"},
-        barmode="overlay",
-        category_orders={"age": ages_ordonnes},  # 🔍 forcer l’ordre des catégories
-        title="Répartition des anomalies selon l'âge"
-    )
-
-
-    fig_hist.update_layout(
-        xaxis_title="Âge (jours)",
-        yaxis_title="Nombre de mesures",
-        legend_title_text="Anomalie"
-    )
-
-    st.plotly_chart(fig_hist, use_container_width=True)
-
-
-
-
-    # ✅ Résumé
-    anomalies = df_long[df_long["anomalie"] == "Anomalie"]
-    st.error(f"{len(anomalies)} anomalies détectées sur {len(df_long)} mesures.")
+    df_anomalies.rename(columns={"colonne_concernee": "colonnes_anormales"}, inplace=True)
+    corriger_valeurs_anormales(df_anomalies, table_name="mesures_normalisees")
