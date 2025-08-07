@@ -2,10 +2,25 @@ import streamlit as st
 import pandas as pd
 import sqlite3
 
+
 def charger_donnees_sqlite(table_name="NSB_Liste_273983CC", db_path="dataBeton.db"):
-    with sqlite3.connect(db_path) as conn:
-        df = pd.read_sql_query(f"SELECT * FROM {table_name}", conn)
+    try:
+        with sqlite3.connect(db_path) as conn:
+            df = pd.read_sql(f"SELECT * FROM {table_name}", conn)
+    except Exception as e:
+        st.error(f"Erreur lors du chargement des données : {e}")
+        return pd.DataFrame()
+
+    # Colonnes numériques attendues (adapter selon ta base)
+    colonnes_num = ["slump", "volume", "temperature", "jour_1", "jour_3", "jour_7", "jour_28", "jour_56"]
+
+    for col in colonnes_num:
+        if col in df.columns:
+            # Remplace ',' par '.' puis convertit en float, coercer en NaN si échec
+            df[col] = pd.to_numeric(df[col].astype(str).str.replace(',', '.'), errors='coerce')
+
     return df
+
 
 def nettoyer_dataframe(df):
     colonnes_flottantes = ["jour_1", "jour_3", "jour_7", "jour_28", "jour_56", "slump", "volume", "temperature"]
