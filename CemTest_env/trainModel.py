@@ -1,95 +1,101 @@
-import pandas as pd
-import sqlite3
-from sklearn.ensemble import RandomForestRegressor
-from sklearn.multioutput import MultiOutputRegressor
-from sklearn.model_selection import train_test_split
-from sklearn.metrics import mean_absolute_error, r2_score
-import joblib
-import os
 
-# 1. Chargement des données
-def charger_donnees(db_path="dataBeton.db", table="NSB_Liste_273983CC"):
-    with sqlite3.connect(db_path) as conn:
-        df = pd.read_sql(f"SELECT * FROM {table}", conn)
+import sqlite3
+import pandas as pd
+import numpy as np
+
+# Modèles de régression
+from sklearn.ensemble import RandomForestRegressor, GradientBoostingRegressor, ExtraTreesRegressor
+from sklearn.linear_model import Ridge, Lasso, LinearRegression
+from xgboost import XGBRegressor
+from lightgbm import LGBMRegressor
+from sklearn.svm import SVR
+from sklearn.neighbors import KNeighborsRegressor
+from sklearn.multioutput import MultiOutputRegressor
+
+# Évaluation et validation
+from sklearn.model_selection import cross_val_score, train_test_split
+from sklearn.metrics import mean_squared_error
+
+# Sauvegarde du modèle
+import joblib
+
+
+# Chemins
+DB_PATH = "dataBeton.db"          # adapte selon ton projet
+TABLE = "NSB_Liste_273983CC"
+MODEL_SAVE_PATH = "model/modele_multi_resistance.pkl"
+
+
+def charger_donnees():
+    conn = sqlite3.connect(DB_PATH)
+    df = pd.read_sql_query(f"""
+        SELECT slump, volume, temperature, 
+               jour_1, jour_3, jour_7, jour_28, jour_56
+        FROM {TABLE}
+        WHERE slump IS NOT NULL AND volume IS NOT NULL AND temperature IS NOT NULL
+    """, conn)
+    conn.close()
+
+    # Nettoyage des valeurs numériques
+    colonnes_numeriques = ["slump", "volume", "temperature", "jour_1", "jour_3", "jour_7", "jour_28", "jour_56"]
+    for col in colonnes_numeriques:
+        df[col] = df[col].astype(str).str.replace(',', '.', regex=False)
+        df[col] = pd.to_numeric(df[col], errors='coerce')
+
+    df = df.dropna()  # optionnel : on enlève les lignes avec NaN
     return df
 
-# 2. Préparation des données
-def preparer_donnees(df):
-    df = df.copy()
-    colonnes_resistance = ["jour_1", "jour_3", "jour_7", "jour_28", "jour_56"]
-    colonnes_features = ["slump", "temperature", "formule"]
 
-    print("🧪 Colonnes du DataFrame :", df.columns.tolist())
-    print("🔢 Forme initiale du DataFrame :", df.shape)
+def preparer_X_y(df):
+    X = df[["slump", "volume", "temperature"]].copy()
+    y = df[["jour_1", "jour_3", "jour_7", "jour_28", "jour_56"]].copy()
+    return X, y
 
-    # Remplacer les virgules et convertir en float pour les colonnes numériques
-    for col in colonnes_resistance + ["slump", "temperature"]:
-        if col in df.columns:
-            df[col] = pd.to_numeric(df[col].astype(str).str.replace(',', '.'), errors='coerce')
+def evaluer_modele(model, X, y):
+    # Cross validation (score négatif MSE)
+    scores = cross_val_score(model, X, y, cv=5, scoring='neg_mean_squared_error')
+    rmse_scores = np.sqrt(-scores)
+    print(f"RMSE CV: {rmse_scores.mean():.3f} ± {rmse_scores.std():.3f}")
+    return rmse_scores.mean()
 
-    # Supprimer les lignes avec des valeurs manquantes dans les colonnes clés
-    df = df.dropna(subset=colonnes_resistance + colonnes_features)
-    print("✅ Après suppression des valeurs manquantes :", df.shape)
-
-    # Encodage one-hot de la colonne "formule"
-    df = pd.get_dummies(df, columns=["formule"], drop_first=True)
-
-    # Sélection des colonnes explicatives
-    X = df[[col for col in df.columns if col.startswith("slump") or col.startswith("temperature") or col.startswith("formule_")]]
-    Y = df[colonnes_resistance]
-
-    print("📊 Exemple de features (X) :")
-    print(X.head())
-    print("🎯 Exemple des cibles (Y) :")
-    print(Y.head())
-
-    return X, Y
-
-# 3. Entraînement du modèle
-def entrainer_model(X, Y):
-    base_model = RandomForestRegressor(n_estimators=100, random_state=42)
-    model = MultiOutputRegressor(base_model)
-    model.fit(X, Y)
-    return model
-
-# 4. Évaluation détaillée
-def evaluer(model, X_test, Y_test):
-    Y_pred = model.predict(X_test)
-    mae_scores = mean_absolute_error(Y_test, Y_pred, multioutput='raw_values')
-    r2_scores = r2_score(Y_test, Y_pred, multioutput='raw_values')
-    for i, col in enumerate(Y_test.columns):
-        print(f"{col} - MAE: {mae_scores[i]:.3f}, R2: {r2_scores[i]:.3f}")
-
-# 5. Sauvegarde du modèle
-def sauvegarder_modele(model, chemin="model/modele_multi_resistance.pkl"):
-    dossier = os.path.dirname(chemin)
-    if not os.path.exists(dossier):
-        os.makedirs(dossier)
-    print("💾 Sauvegarde du modèle...")
-    joblib.dump(model, chemin)
-
-# 6. Script principal
-if __name__ == "__main__":
-    print("📥 Chargement des données...")
+def entrainer_et_sauvegarder():
     df = charger_donnees()
-    
-    print("🧹 Préparation des données...")
-    X, Y = preparer_donnees(df)
+    X, y = preparer_X_y(df)
 
-    print(f"📦 Nombre d’échantillons : {len(X)}")
-    if len(X) == 0:
-        print("❌ Aucune donnée exploitable pour l'entraînement. Vérifie les colonnes et les valeurs manquantes.")
-        exit()
+    # Liste des modèles à tester
+    modeles = {
+    "RandomForest": MultiOutputRegressor(RandomForestRegressor(n_estimators=100, random_state=42)),
+    "GradientBoosting": MultiOutputRegressor(GradientBoostingRegressor(n_estimators=100, random_state=42)),
+    "LinearRegression": MultiOutputRegressor(LinearRegression()),
+    "Ridge": MultiOutputRegressor(Ridge(alpha=1.0)),
+    "Lasso": MultiOutputRegressor(Lasso(alpha=0.1)),
+    "KNN": MultiOutputRegressor(KNeighborsRegressor(n_neighbors=5)),
+    "XGBoost": MultiOutputRegressor(XGBRegressor(n_estimators=100, random_state=42)),
+    "LightGBM": MultiOutputRegressor(LGBMRegressor(n_estimators=100, random_state=42))
+}
 
-    X_train, X_test, Y_train, Y_test = train_test_split(X, Y, test_size=0.2, random_state=42)
 
-    print("🧠 Entraînement du modèle...")
-    modele = entrainer_model(X_train, Y_train)
+    meilleurs_score = float("inf")
+    meilleur_modele = None
+    meilleur_nom = ""
 
-    print("📈 Évaluation du modèle :")
-    evaluer(modele, X_test, Y_test)
+    for nom, modele in modeles.items():
+        print(f"Évaluation du modèle : {nom}")
+        score = evaluer_modele(modele, X, y)
+        if score < meilleurs_score:
+            meilleurs_score = score
+            meilleur_modele = modele
+            meilleur_nom = nom
 
-    print("💾 Sauvegarde du modèle...")
-    sauvegarder_modele(modele)
+    print(f"Meilleur modèle : {meilleur_nom} avec RMSE = {meilleurs_score:.3f}")
 
-    print("✅ Modèle entraîné et sauvegardé avec succès.")
+    # Entraîner le meilleur modèle sur tout le jeu
+    print("Entraînement final du meilleur modèle sur toutes les données...")
+    meilleur_modele.fit(X, y)
+
+    # Sauvegarder le modèle
+    joblib.dump(meilleur_modele, MODEL_SAVE_PATH)
+    print(f"Modèle sauvegardé dans {MODEL_SAVE_PATH}")
+
+if __name__ == "__main__":
+    entrainer_et_sauvegarder()
